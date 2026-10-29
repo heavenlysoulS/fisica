@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simulador de interferencia y difracción</title>
+<style>
+:root{--bg:#f4f3ee;--fg:#1d1c1a;--card:#fff;--mut:#6a665d;--ac:#b4530a;--bd:#dcd7ca;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101116;--fg:#ecebe6;--card:#1a1b22;--mut:#9a978d;--ac:#f0a25c;--bd:#2c2d37;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#101116;--fg:#ecebe6;--card:#1a1b22;--mut:#9a978d;--ac:#f0a25c;--bd:#2c2d37;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.45}
+main{max-width:1000px;margin:0 auto;padding:18px 14px 40px}
+h1{font-size:1.45rem;margin:0 0 4px}
+p.sub{margin:0 0 16px;color:var(--mut);font-size:.92rem}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px}
+.card h2{font-size:.95rem;margin:0 0 8px;color:var(--ac)}
+canvas{width:100%;height:auto;display:block;border-radius:8px;background:#000}
+.ctl{display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px}
+@media(min-width:760px){.ctl{grid-template-columns:1fr 1fr}}
+label{display:block;font-size:.88rem}
+label b{float:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--ac)}
+.row{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;font-size:.88rem}
+.out{margin-top:12px;font-size:.88rem;color:var(--mut);display:grid;gap:3px}
+.out span b{color:var(--fg)}
+</style></head><body><main>
+<h1>Simulador de interferencia y difracción</h1>
+<p class="sub">Dos fuentes coherentes: cambia λ, fase, amplitudes y separación, y mira cómo se mueven las franjas.</p>
+<div class="grid">
+ <div class="card"><h2>Campo de las ondas (escala 1 px = 10 nm)</h2><canvas id="field" width="360" height="360"></canvas></div>
+ <div class="card"><h2>Pantalla lejana: franjas e intensidad vs ángulo</h2><canvas id="screen" width="360" height="360"></canvas></div>
+</div>
+<div class="card ctl">
+ <label>Longitud de onda λ <b id="o_lam"></b><input id="lam" type="range" min="400" max="700" step="5" value="550"></label>
+ <label>Diferencia de fase φ <b id="o_phi"></b><input id="phi" type="range" min="-180" max="180" step="5" value="0"></label>
+ <label>Amplitud onda 1 <b id="o_a1"></b><input id="a1" type="range" min="0" max="1" step="0.05" value="1"></label>
+ <label>Amplitud onda 2 <b id="o_a2"></b><input id="a2" type="range" min="0" max="1" step="0.05" value="1"></label>
+ <label>Distancia entre fuentes d <b id="o_d"></b><input id="d" type="range" min="0.6" max="3" step="0.05" value="1.5"></label>
+ <label>Ancho de rendija a (difracción) <b id="o_w"></b><input id="w" type="range" min="0.1" max="2" step="0.05" value="0.6"></label>
+ <div class="row" style="grid-column:1/-1">
+  <label><input id="anim" type="checkbox" checked> Animar ondas (si no, intensidad promedio)</label>
+  <label><input id="diff" type="checkbox" checked> Incluir difracción (envolvente de rendija)</label>
+ </div>
+</div>
+<div class="card out" style="margin-top:14px" id="out"></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const P={lam:550,phi:0,a1:1,a2:1,d:1.5,w:.6};
+const units={lam:v=>v+' nm',phi:v=>v+'°',a1:v=>(+v).toFixed(2),a2:v=>(+v).toFixed(2),d:v=>(+v).toFixed(2)+' µm',w:v=>(+v).toFixed(2)+' µm'};
+for(const k in P){const el=$(k);const f=()=>{P[k]=+el.value;$('o_'+k).textContent=units[k](el.value);info()};el.addEventListener('input',f);f()}
+function rgb(l){let r=0,g=0,b=0;
+ if(l<440){r=-(l-440)/60;b=1}else if(l<490){g=(l-440)/50;b=1}else if(l<510){g=1;b=-(l-510)/20}
+ else if(l<580){r=(l-510)/70;g=1}else if(l<645){r=1;g=-(l-645)/65}else{r=1}
+ const f=l<420?.3+.7*(l-380)/40:l>700?.3+.7*(780-l)/80:1;return[r*f*255,g*f*255,b*f*255]}
+const W=360,H=360,PX=100,x0=24;
+const fx=$('field').getContext('2d'),img=fx.createImageData(W,H);
+function drawField(t){
+ const lam=P.lam/10,k=2*Math.PI/lam,sy=P.d*PX/2,y1=H/2-sy,y2=H/2+sy,phi=P.phi*Math.PI/180;
+ const [cr,cg,cb]=rgb(P.lam),A=P.a1+P.a2||1,an=$('anim').checked,wt=t*2.2,d=img.data;
+ for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+  const i=4*(y*W+x);
+  if(x<x0){d[i]=d[i+1]=d[i+2]=40;d[i+3]=255;continue}
+  const r1=Math.hypot(x-x0,y-y1),r2=Math.hypot(x-x0,y-y2);let b;
+  if(an){const v=P.a1*Math.cos(k*r1-wt)+P.a2*Math.cos(k*r2-wt+phi);b=.5+.5*v/A}
+  else{const I=P.a1*P.a1+P.a2*P.a2+2*P.a1*P.a2*Math.cos(k*(r1-r2)-phi);b=I/(A*A)}
+  d[i]=cr*b;d[i+1]=cg*b;d[i+2]=cb*b;d[i+3]=255}
+ fx.putImageData(img,0,0);
+ fx.fillStyle='#fff';const hw=Math.max(2,P.w*PX/2);
+ [y1,y2].forEach(y=>{fx.fillStyle='#000';fx.fillRect(x0-3,y-hw,6,2*hw);fx.fillStyle='#fff';fx.beginPath();fx.arc(x0,y,3,0,7);fx.fill()});
+ fx.fillStyle='#fff';fx.font='11px sans-serif';fx.fillText('d',4,H/2+4)}
+const sc=$('screen').getContext('2d');
+function Iang(th){const k=2*Math.PI*P.d/(P.lam/1000),phi=P.phi*Math.PI/180,s=Math.sin(th);
+ let I=P.a1*P.a1+P.a2*P.a2+2*P.a1*P.a2*Math.cos(k*s+phi);
+ if($('diff').checked){const u=Math.PI*P.w*s/(P.lam/1000);I*=u===0?1:Math.pow(Math.sin(u)/u,2)}
+ return I/((P.a1+P.a2)**2||1)}
+function drawScreen(){
+ const TM=60*Math.PI/180,[cr,cg,cb]=rgb(P.lam);
+ sc.fillStyle='#000';sc.fillRect(0,0,W,H);
+ for(let y=0;y<H;y++){const th=(H/2-y)/(H/2)*TM,I=Iang(th);sc.fillStyle=`rgb(${cr*I},${cg*I},${cb*I})`;sc.fillRect(0,y,64,1)}
+ sc.strokeStyle='#888';sc.lineWidth=1;sc.beginPath();sc.moveTo(84,0);sc.lineTo(84,H);sc.moveTo(84,H-1);sc.lineTo(W,H-1);sc.stroke();
+ sc.strokeStyle=`rgb(${cr},${cg},${cb})`;sc.lineWidth=2;sc.beginPath();
+ for(let y=0;y<H;y++){const th=(H/2-y)/(H/2)*TM,x=84+Iang(th)*(W-92);y?sc.lineTo(x,y):sc.moveTo(x,y)}sc.stroke();
+ sc.fillStyle='#bbb';sc.font='11px sans-serif';
+ [60,30,0,-30,-60].forEach(a=>{const y=H/2-a/60*H/2;sc.fillText(a+'°',66-(a<0?4:0),Math.min(H-4,Math.max(11,y+4)))});
+ sc.fillText('Intensidad →',W-76,12)}
+function info(){
+ const lamu=P.lam/1000,ds=lamu/P.d,phi=P.phi/360;let n=0;
+ for(let m=-60;m<=60;m++){if(Math.abs((m-phi)*ds)<=1)n++}
+ const V=2*P.a1*P.a2/((P.a1**2+P.a2**2)||1),s1=ds*(1-phi);
+ $('out').innerHTML=
+ `<span>Condición de máximos: d·sen θ = (m − φ/2π)·λ → separación en sen θ: <b>${ds.toFixed(3)}</b></span>`+
+ `<span>Primer máximo (m=1): <b>${Math.abs(s1)<=1?(Math.asin(s1)*180/Math.PI).toFixed(1)+'°':'no existe (λ/d muy grande)'}</b> · máximos visibles: <b>${n}</b></span>`+
+ `<span>Visibilidad de franjas V = 2A₁A₂/(A₁²+A₂²): <b>${V.toFixed(2)}</b> ${V<.2?'(casi no hay franjas oscuras definidas)':''}</span>`+
+ `<span>Primer mínimo de difracción: <b>${lamu/P.w<=1?(Math.asin(lamu/P.w)*180/Math.PI).toFixed(1)+'°':'más allá de 90° (rendija angosta: difracción ancha)'}</b></span>`}
+$('diff').addEventListener('change',info);
+let t=0,last=performance.now();
+function loop(n){if($('anim').checked)t+=(n-last)/1000;last=n;drawField(t);drawScreen();requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+</script></body></html>
